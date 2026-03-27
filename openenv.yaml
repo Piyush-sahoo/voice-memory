@@ -1,0 +1,11 @@
+spec_version: 1
+name: voice_agent_env
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+description: >
+  Voice Agent Prompt Optimizer - An RL environment for post-call analysis
+  of AI voice agent conversations. Optimizes system prompts using transcript
+  feedback from a LiveKit + Deepgram + GPT-4o-mini voice pipeline.
+version: "1.0.0"
