@@ -32,19 +32,22 @@ try:
     from .voice_agent_env_environment import VoiceAgentEnvironment
     from .graders import generate_feedback, grade_prompt
     from .scenarios import ALL_SCENARIOS, TASK_DEFINITIONS
+    from .gradio_builder import build_voice_agent_gradio
 except (ImportError, ModuleNotFoundError):
     from models import VoiceAgentAction, VoiceAgentObservation
     from server.voice_agent_env_environment import VoiceAgentEnvironment
     from server.graders import generate_feedback, grade_prompt
     from server.scenarios import ALL_SCENARIOS, TASK_DEFINITIONS
+    from server.gradio_builder import build_voice_agent_gradio
 
-# ─── Create the OpenEnv app ───
+# ─── Create the OpenEnv app with custom Gradio UI ───
 app = create_app(
     VoiceAgentEnvironment,
     VoiceAgentAction,
     VoiceAgentObservation,
     env_name="voice_agent_env",
     max_concurrent_envs=10,
+    gradio_builder=build_voice_agent_gradio,
 )
 
 
