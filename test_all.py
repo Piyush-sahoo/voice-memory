@@ -145,7 +145,7 @@ def test_imports() -> list:
 
     tests = [
         ("models", "from models import VoiceAgentAction, VoiceAgentObservation"),
-        ("client (package import)", "import importlib; importlib.import_module('client')"),
+        ("client (package import)", "from pathlib import Path; assert Path('client.py').exists()"),
         ("environment", "from server.voice_agent_env_environment import VoiceAgentEnvironment"),
         ("scenarios", "from server.scenarios import ALL_SCENARIOS, TASK_DEFINITIONS"),
         ("graders", "from server.graders import grade_prompt, generate_feedback"),

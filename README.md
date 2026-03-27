@@ -13,208 +13,144 @@ tags:
 
 # Voice Agent Prompt Optimizer
 
-An RL environment for **post-call analysis and system prompt optimization** of AI voice agents. Built on the OpenEnv framework.
+**An OpenEnv RL environment that teaches AI to write better prompts for voice agents — by learning from failed phone calls.**
 
-## Motivation
+> Built for the Meta x Scaler OpenEnv Hackathon | Team Zukii
 
-Every voice AI company (using LiveKit, Twilio, Vonage, etc.) manually reviews call transcripts to tune their agent prompts. This is slow, subjective, and doesn't scale. This environment automates that feedback loop: an RL agent analyzes call transcripts, identifies failure points, and optimizes the voice agent's system prompt to improve future call handling.
+## The Problem
 
-**Pipeline modeled:** LiveKit + Deepgram STT (Nova-3) + GPT-4o-mini + OpenAI TTS — a real production voice AI stack.
+We build AI voice agents that make real outbound phone calls using **LiveKit + Deepgram + GPT-4o-mini**. The #1 pain point? The system prompt. When a voice agent doesn't know the answer to "What are your prices?" or fumbles an angry customer, the only fix is a human manually rewriting the prompt after listening to call recordings. This doesn't scale.
+
+## What We Built
+
+An RL environment where an AI agent **learns to optimize voice agent prompts by studying failed call transcripts**. It receives a bad call, figures out what went wrong, and rewrites the prompt to prevent it from happening again.
+
+```
+         FAILED CALL                    RL AGENT                    BETTER PROMPT
+  ┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+  │ Customer: "What are │      │ Analyzes transcript  │      │ "You are a voice    │
+  │ your prices?"       │ ───> │ Detects: no product  │ ───> │ agent from Vobiz.   │
+  │ Agent: "Check our   │      │ knowledge, deflected │      │ Plans: Starter $29, │
+  │ website."           │      │ to website           │      │ Pro $79, Ent $199.  │
+  │ Customer: "Bye."    │      │ Rewrites prompt      │      │ Always answer with  │
+  └─────────────────────┘      └─────────────────────┘      │ specific numbers."  │
+                                                             └─────────────────────┘
+```
 
 ## How It Works
 
+1. **Reset** — Environment loads a call transcript where the voice agent failed, along with the prompt that was used
+2. **Step** — RL agent submits an improved prompt. Environment scores it: Did it fix the knowledge gap? Is it structured? Does it violate any policies?
+3. **Iterate** — Agent gets feedback and can refine the prompt for up to 3 turns
+4. **Score** — Final grade from 0.0 to 1.0 based on how many issues were actually fixed
+
+## Three Tasks, Increasing Difficulty
+
+| Task | What Happened | What the Agent Must Fix |
+|------|--------------|------------------------|
+| **FAQ Resolution** (Easy) | Customer asked a simple question (hours, pricing, password reset). Agent didn't know the answer. | Add the missing knowledge to the prompt |
+| **Complaint Handling** (Medium) | Angry customer called about billing error / outage. Agent was cold, offered no resolution, tried to transfer immediately. | Add empathy, de-escalation steps, refund authority to the prompt |
+| **Multi-Session Sales** (Hard) | 3-call outbound sales sequence. Agent lost the deal — couldn't quote prices, forgot previous conversations, had no counter for competitors. | Add product knowledge, session memory instructions, objection handling |
+
+Each task has **5 realistic scenarios** with real dialogue modeled on our production LiveKit voice agent pipeline. 15 total scenarios.
+
+## LiveKit Integration — Real Calls
+
+This isn't just synthetic data. We built a **LiveKit bridge** that captures transcripts from real phone calls and feeds them directly into the environment:
+
 ```
-Episode Flow:
-
-1. reset(task_id) --> Agent receives:
-   - Call transcript(s) from a voice AI system
-   - The current (flawed) system prompt
-   - Failure analysis + required improvements
-   - Company policy constraints
-
-2. step(optimized_prompt) --> Agent submits improved prompt
-   - Environment grades it against ground-truth improvements
-   - Returns score breakdown + feedback
-   - Agent can iterate (up to 3 turns per episode)
-
-3. done=True after max turns
+  Real Phone Call (LiveKit + Vobiz SIP)
+           │
+           ▼
+  Deepgram STT ──> GPT-4o-mini ──> OpenAI TTS
+           │
+           ▼
+  TranscriptCapture (livekit_bridge.py)
+           │
+           ▼
+  POST /live-reset ──> Environment auto-detects failures
+           │
+           ▼
+  RL Agent optimizes prompt ──> Graded ──> Updated prompt goes back to agent
 ```
 
-## Tasks (Easy -> Hard)
+The auto-detection catches: website deflection, vague superlatives without data, customer frustration, unresolved calls, unnecessary transfers.
 
-| Task | Difficulty | Description | Scenarios |
-|------|-----------|-------------|-----------|
-| `faq_resolution` | Easy | Single FAQ call — agent couldn't answer a direct question (hours, pricing, etc.). Fix the knowledge gap in the prompt. | 5 |
-| `complaint_handling` | Medium | Customer complaint call — agent failed to empathize, de-escalate, or resolve. Add proper complaint handling procedures. | 5 |
-| `multi_session_sales` | Hard | Multi-session outbound sales sequence (e.g., credit card sales over 3 calls). Agent lost the deal due to broken promises, no product knowledge, or failure to maintain context across sessions. | 5 |
-
-## Action Space
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `optimized_prompt` | `str` | The improved system prompt for the voice agent |
-| `reasoning` | `str` | Explanation of what was changed and why |
-
-## Observation Space
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `task_id` | `str` | Active task: `faq_resolution`, `complaint_handling`, `multi_session_sales` |
-| `task_difficulty` | `str` | `easy`, `medium`, `hard` |
-| `current_prompt` | `str` | The flawed system prompt used during the call |
-| `call_transcripts` | `List[Dict]` | Turn-by-turn transcript(s) with role, text, timestamp |
-| `call_metadata` | `Dict` | Customer name, intent, sentiment, resolution status, STT/LLM/TTS info |
-| `failure_points` | `List[str]` | What went wrong in the call |
-| `required_improvements` | `List[str]` | Specific improvements the optimized prompt must address |
-| `policy_context` | `str` | Company policy rules the agent must follow |
-| `score_breakdown` | `Dict` | Detailed scoring after each step |
-| `feedback_message` | `str` | Human-readable feedback |
-| `turn_number` / `max_turns` | `int` | Current turn and maximum turns (3) |
-
-## Reward Function
-
-Per-turn partial rewards (not sparse):
-
-- **Improvement delta**: reward/penalize based on score change from previous turn
-- **New improvements bonus**: +0.1 per newly addressed requirement
-- **Policy violation penalty**: -0.5 * violation severity
-- **Terminal bonus**: final score * 0.5 on last turn
-
-## Grading Logic
-
-Deterministic grading (0.0 - 1.0):
-
-| Component | Weight | Description |
-|-----------|--------|-------------|
-| Improvement coverage | 60% | Fraction of required_improvements addressed in the prompt |
-| Prompt quality | 20% | Structural checks: length, numbered rules, specificity, role clarity |
-| Policy compliance | 20% | Penalty for policy violations (e.g., badmouthing competitors, pressure tactics) |
-
-## Setup & Usage
-
-### Local Development
+## Quick Start
 
 ```bash
-# Clone and install
-git clone <repo-url>
-cd voice-agent-openenv
+git clone https://github.com/Piyush-sahoo/voice-memory.git
+cd voice-memory
 pip install -e .
 
-# Run server
-uvicorn server.app:app --host 0.0.0.0 --port 8000
+# Start the server
+uvicorn server.app:app --port 8000
 
-# Or with reload for development
-uvicorn server.app:app --reload
-```
+# Run the test suite
+python test_all.py
 
-### Using the Client
-
-```python
-from voice_agent_env import VoiceAgentEnv, VoiceAgentAction
-
-with VoiceAgentEnv(base_url="http://localhost:8000").sync() as env:
-    # Reset with specific task
-    result = env.reset()  # random task, or pass task_id="faq_resolution"
-
-    # View the call transcript and failure points
-    obs = result.observation
-    print(f"Task: {obs.task_id} ({obs.task_difficulty})")
-    print(f"Failures: {obs.failure_points}")
-
-    # Submit an optimized prompt
-    result = env.step(VoiceAgentAction(
-        optimized_prompt="You are a professional voice assistant from Vobiz...",
-        reasoning="Added business hours and direct answer policy",
-    ))
-    print(f"Score: {result.observation.score_breakdown['score']}")
-    print(f"Feedback: {result.observation.feedback_message}")
-```
-
-### Docker
-
-```bash
-# Build
-openenv build . -t voice-agent-env
-
-# Run
-docker run -d -p 8000:8000 voice-agent-env
-
-# Test
-curl http://localhost:8000/health
-```
-
-### Deploy to HF Spaces
-
-```bash
-openenv push --repo-id your-username/voice-agent-env
-```
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/reset` | POST | Start new episode |
-| `/step` | POST | Submit optimized prompt |
-| `/state` | GET | Episode metadata |
-| `/tasks` | GET | List tasks + action schema |
-| `/grader` | POST | Grade a prompt against a scenario |
-| `/baseline` | POST | Run baseline inference on all tasks |
-| `/ws` | WebSocket | Persistent session |
-| `/web` | GET | Interactive web UI |
-| `/docs` | GET | OpenAPI documentation |
-
-## Baseline Scores
-
-### Deterministic Baseline (hand-crafted prompts from ground truth)
-
-| Task | Difficulty | Average Score |
-|------|-----------|--------------|
-| `faq_resolution` | Easy | 0.98 |
-| `complaint_handling` | Medium | 0.98 |
-| `multi_session_sales` | Hard | 0.99 |
-
-### Running Baseline
-
-```bash
-# Deterministic (no API key needed)
+# Run baseline (no API key needed)
 python baseline.py --deterministic
 
-# With OpenAI
+# Run baseline with OpenAI
 OPENAI_API_KEY=sk-... python baseline.py
+```
+
+## Live Demo
+
+```bash
+# Test mode — uses synthetic transcript, no real call needed
+python demo/run_live_call.py --test --optimize
+
+# Real call via LiveKit (needs .env with credentials)
+python demo/run_live_call.py --to +919988776655 --optimize
+```
+
+## Deployed
+
+**HF Spaces:** [https://huggingface.co/spaces/PiyushS/voice-agent-env](https://huggingface.co/spaces/PiyushS/voice-agent-env)
+
+```bash
+# Validate it yourself
+pip install openenv-core
+openenv validate --url https://piyushs-voice-agent-env.hf.space
+# Result: 6/6 criteria passed
 ```
 
 ## Project Structure
 
 ```
-voice-agent-openenv/
-├── __init__.py              # Package exports
-├── models.py                # VoiceAgentAction, VoiceAgentObservation (Pydantic)
-├── client.py                # VoiceAgentEnv (EnvClient subclass)
-├── baseline.py              # Baseline inference script
-├── openenv.yaml             # OpenEnv manifest
-├── pyproject.toml           # Package metadata
-├── uv.lock                  # Locked dependencies
+├── models.py                 # Action (optimized_prompt) + Observation (transcript, scores)
+├── client.py                 # WebSocket client for the environment
+├── baseline.py               # Baseline inference (deterministic + OpenAI GPT-4o-mini)
+├── livekit_bridge.py         # Real call transcript capture from LiveKit
+├── test_all.py               # Full test suite (120 tests)
+├── demo/
+│   └── run_live_call.py      # End-to-end: make call → capture → optimize → grade
 └── server/
-    ├── __init__.py
-    ├── app.py               # FastAPI + /tasks, /grader, /baseline endpoints
-    ├── voice_agent_env_environment.py  # Core: reset(), step(), state
-    ├── scenarios.py          # 15 synthetic call transcripts (5 per task)
-    ├── graders.py            # Deterministic scoring (0.0-1.0)
-    ├── rewards.py            # Per-turn partial reward function
-    ├── policy_rules.py       # Company policy constraints
-    ├── Dockerfile            # Container for HF Spaces
-    └── requirements.txt      # Server dependencies
+    ├── environment.py        # Core RL logic: reset() / step() / state
+    ├── scenarios.py          # 15 call transcripts across 3 difficulty levels
+    ├── graders.py            # Deterministic scoring (0.0–1.0)
+    ├── rewards.py            # Per-turn partial rewards
+    ├── policy_rules.py       # Policy violation detection
+    ├── app.py                # FastAPI server with all endpoints
+    └── Dockerfile            # Containerized for HF Spaces
 ```
 
-## Validation
+## Tech Stack
 
-```bash
-# Validate structure
-openenv validate .
+| Component | Technology |
+|-----------|-----------|
+| Voice Calls | LiveKit + Vobiz SIP Trunking |
+| Speech-to-Text | Deepgram Nova-3 |
+| LLM | OpenAI GPT-4o-mini |
+| Text-to-Speech | OpenAI TTS / Cartesia Sonic-2 |
+| RL Framework | OpenEnv by Meta |
+| Server | FastAPI + Uvicorn |
+| Deployment | Docker on Hugging Face Spaces |
 
-# Validate running server
-uvicorn server.app:app --port 8000 &
-openenv validate --url http://localhost:8000
-# Result: 6/6 criteria passed
-```
+## Team
+
+**Team Zukii**
+- Piyush Sahoo — [GitHub](https://github.com/Piyush-sahoo)
+- Kush Anchalia
