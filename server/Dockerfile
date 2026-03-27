@@ -7,20 +7,23 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git curl && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy everything
+# Copy everything to /app/env (where the server runs from)
 COPY . /app/env
+
+# Also put README at /app/README.md so OpenEnv web UI can find it
+COPY README.md /app/README.md
 
 WORKDIR /app/env
 
-# Install Python deps directly with pip (simple, no uv needed)
+# Install Python deps
 RUN pip install --no-cache-dir \
     "openenv-core[core]>=0.2.1" \
     "openai>=1.0.0" \
     "fastapi>=0.115.0" \
     "uvicorn>=0.24.0"
 
-# Set PYTHONPATH so imports work
-ENV PYTHONPATH="/app/env:$PYTHONPATH"
+# PYTHONPATH so imports work
+ENV PYTHONPATH="/app/env"
 
 # Enable the built-in OpenEnv web UI at /web
 ENV ENABLE_WEB_INTERFACE=true

@@ -25,7 +25,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
-from openenv.core.env_server.types import State
+from openenv.core.env_server.types import EnvironmentMetadata, State
 
 try:
     from ..models import VoiceAgentAction, VoiceAgentObservation
@@ -220,6 +220,41 @@ class VoiceAgentEnvironment(Environment):
     def get_episode_scores(self) -> list:
         """Return all scores from the current episode."""
         return list(self._episode_scores)
+
+    def get_metadata(self) -> EnvironmentMetadata:
+        """
+        Return environment metadata for the web UI.
+        Strips YAML frontmatter from README so it renders cleanly.
+        """
+        from pathlib import Path
+
+        readme_content = None
+        for candidate in [
+            Path("/app/README.md"),
+            Path(__file__).parent.parent / "README.md",
+        ]:
+            if candidate.exists():
+                raw = candidate.read_text(encoding="utf-8")
+                # Strip YAML frontmatter (--- ... ---)
+                if raw.startswith("---"):
+                    end = raw.find("\n---", 3)
+                    if end != -1:
+                        raw = raw[end + 4:].lstrip("\n")
+                readme_content = raw
+                break
+
+        return EnvironmentMetadata(
+            name="Voice Agent Prompt Optimizer",
+            description=(
+                "An RL environment for post-call analysis of AI voice agent conversations. "
+                "The agent optimizes system prompts to improve future call handling. "
+                "Built on a real LiveKit + Deepgram + GPT-4o-mini voice pipeline."
+            ),
+            version="1.0.0",
+            author="Team Zukii — Piyush Sahoo & Kush Anchalia",
+            documentation_url="https://github.com/Piyush-sahoo/voice-memory",
+            readme_content=readme_content,
+        )
 
     def live_reset(self, live_data: Dict) -> VoiceAgentObservation:
         """

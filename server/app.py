@@ -45,7 +45,7 @@ app = create_app(
     VoiceAgentEnvironment,
     VoiceAgentAction,
     VoiceAgentObservation,
-    env_name="voice_agent_env",
+    env_name="Voice Agent Prompt Optimizer",
     max_concurrent_envs=10,
     gradio_builder=build_voice_agent_gradio,
 )

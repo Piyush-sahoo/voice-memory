@@ -317,22 +317,46 @@ Train an AI to fix bad voice agent prompts by studying failed phone calls.
         # ── Quick Start ──
         with gr.Accordion("Quick Start & API", open=False):
             gr.Markdown("""
+### Connect to this environment
+
 ```python
 from voice_agent_env import VoiceAgentEnv, VoiceAgentAction
 
-with VoiceAgentEnv(base_url="http://localhost:8000").sync() as env:
-    # Load a failed call transcript
-    result = env.reset()
-    print(result.observation.failure_points)
+# Connect to HF Space
+with VoiceAgentEnv.from_env("PiyushS/voice-agent-env") as env:
+    result = await env.reset()
+    obs = result.observation
+    print(obs.failure_points)     # What went wrong in the call
 
-    # Submit your optimized prompt
-    result = env.step(VoiceAgentAction(
-        optimized_prompt="You are a professional voice agent from Vobiz. Business hours: Mon-Fri 9AM-6PM. Plans: Starter $29, Pro $79, Enterprise $199. Always answer directly.",
+    result = await env.step(VoiceAgentAction(
+        optimized_prompt="You are a professional voice agent from Vobiz. "
+                         "Business hours: Mon-Fri 9AM-6PM IST. "
+                         "Plans: Starter $29, Pro $79, Enterprise $199. "
+                         "Always answer directly with specific data.",
         reasoning="Added product knowledge and direct answer policy"
     ))
-    print(f"Score: {result.observation.score_breakdown['score']}")
+    print(result.observation.score_breakdown["score"])  # 0.0 - 1.0
 ```
-**API Docs:** [/docs](/docs) &nbsp;|&nbsp; **Health:** [/health](/health) &nbsp;|&nbsp; **Tasks:** [/tasks](/tasks)
+
+Or connect to a local server:
+
+```python
+env = VoiceAgentEnv(base_url="http://localhost:8000")
+```
+
+### GitHub Repository
+**[github.com/Piyush-sahoo/voice-memory](https://github.com/Piyush-sahoo/voice-memory)**
+
+### Contribute
+```bash
+# Fork and improve
+openenv fork PiyushS/voice-agent-env --repo-id your-username/voice-agent-env
+cd voice-agent-env
+# make your changes
+openenv push PiyushS/voice-agent-env --create-pr
+```
+
+**API Docs:** [/docs](/docs) &nbsp;|&nbsp; **Health:** [/health](/health) &nbsp;|&nbsp; **Tasks:** [/tasks](/tasks) &nbsp;|&nbsp; **Baseline:** POST [/baseline](/baseline)
 """)
 
         with gr.Accordion("README", open=False):
